@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Dict, Tuple
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -243,7 +244,7 @@ def main() -> None:
         )
 
     with right:
-        st.subheader("Measurements dataframe (measured cps)")
+        st.subheader("Measurements dataframe")
         st.dataframe(measurements_df, use_container_width=True, height=420)
         st.download_button(
             "Download measurements CSV",
@@ -255,10 +256,46 @@ def main() -> None:
 
     st.markdown("")
     st.subheader("Quick look")
-    means = measurements_df.mean(axis=0).to_numpy()
-    plot_df = pd.DataFrame({"distance_m": distances_m, "mean_cps": means})
-    st.line_chart(plot_df.set_index("distance_m")[["mean_cps"]])
-    st.caption("Mean count rate vs distance (across samples).")
+    n_samples, n_dist = measurements_df.shape
+    sample_ids = np.arange(n_samples, dtype=int)
+    sample_labels = np.array([f"sample_{i}" for i in sample_ids])
+
+    rng = np.random.default_rng(int(seed) + 2026)
+    default_n = min(10, n_samples)
+    default_ids = np.sort(rng.choice(sample_ids, size=default_n, replace=False))
+    default_selection = [{"sample_label": f"sample_{i}"} for i in default_ids]
+
+    plot_df = pd.DataFrame(
+        {
+            "sample_label": np.repeat(sample_labels, n_dist),
+            "distance_m": np.tile(distances_m, n_samples),
+            "cps": measurements_df.to_numpy().reshape(-1),
+        }
+    )
+
+    select_samples = alt.selection_point(
+        fields=["sample_label"],
+        bind="legend",
+        toggle=True,
+        value=default_selection,
+    )
+
+    quick_look_chart = (
+        alt.Chart(plot_df)
+        .mark_line()
+        .encode(
+            x=alt.X("distance_m:Q", title="Distance (m)"),
+            y=alt.Y("cps:Q", title="Count rate (cps)"),
+            color=alt.Color("sample_label:N", title="Samples"),
+            opacity=alt.condition(select_samples, alt.value(0.95), alt.value(0.0)),
+        )
+        .add_params(select_samples)
+        .properties(height=380)
+    )
+    st.altair_chart(quick_look_chart, use_container_width=True)
+    st.caption(
+        f"Showing {default_n} random samples by default. Click sample names in the legend to select/deselect traces."
+    )
 
 
 if __name__ == "__main__":
