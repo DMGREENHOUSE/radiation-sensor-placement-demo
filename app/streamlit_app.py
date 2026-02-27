@@ -184,51 +184,109 @@ def main() -> None:
         background_cps = st.number_input("Background (cps)", 0.0, 1e6, 1.5, 0.1)
         dwell_s = st.number_input("Dwell time (s)", 0.001, 1e4, 2.0, 0.5)
 
+    current_sidebar_signature = (
+        distances_text.strip(),
+        int(n_samples),
+        str(strategy),
+        int(seed),
+        float(Lx),
+        float(Ly),
+        float(Lz),
+        tuple(map(float, b_width)),
+        tuple(map(float, b_depth)),
+        tuple(map(float, b_height)),
+        tuple(map(float, b_activity)),
+        tuple(map(float, b_size)),
+        bool(use_fov),
+        None if fov_half_angle_deg is None else float(fov_half_angle_deg),
+        float(mu_material_m_inv),
+        str(noise),
+        float(distance_offset_m),
+        float(area_m2),
+        float(efficiency),
+        float(background_cps),
+        float(dwell_s),
+    )
+
+    if "last_run_signature" not in st.session_state:
+        st.session_state.last_run_signature = None
+    if "cached_inputs_df" not in st.session_state:
+        st.session_state.cached_inputs_df = None
+    if "cached_measurements_df" not in st.session_state:
+        st.session_state.cached_measurements_df = None
+    if "cached_distances_m" not in st.session_state:
+        st.session_state.cached_distances_m = None
+
+    sidebar_changed_after_run = (
+        st.session_state.last_run_signature is not None
+        and current_sidebar_signature != st.session_state.last_run_signature
+    )
+    if sidebar_changed_after_run:
+        st.session_state.cached_inputs_df = None
+        st.session_state.cached_measurements_df = None
+        st.session_state.cached_distances_m = None
+
     status_placeholder = st.empty()
     run_btn = st.button("Run simulation", use_container_width=True)
 
-    if not run_btn:
+    if run_btn:
+        try:
+            distances_m = parse_distances(distances_text)
+        except Exception as e:
+            st.error(f"Could not parse distances: {e}")
+            return
+
+        box = Box(Lx=float(Lx), Ly=float(Ly), Lz=float(Lz))
+        detector = Detector(
+            area_m2=float(area_m2),
+            efficiency=float(efficiency),
+            background_cps=float(background_cps),
+            dwell_s=float(dwell_s),
+        )
+
+        bounds: Dict[str, Tuple[float, float]] = {
+            "width_x_m": b_width,
+            "depth_y_m": b_depth,
+            "height_z_m": b_height,
+            "mean_activity_bq": b_activity,
+            "size_sigma_m": b_size,
+        }
+
+        try:
+            inputs_df, measurements_df = run_design(
+                distances_m=distances_m,
+                box=box,
+                detector=detector,
+                bounds=bounds,
+                n_samples=int(n_samples),
+                strategy=str(strategy),
+                seed=int(seed),
+                mu_material_m_inv=float(mu_material_m_inv),
+                fov_half_angle_deg=fov_half_angle_deg,
+                distance_offset_m=float(distance_offset_m),
+                noise=str(noise),
+            )
+        except Exception as e:
+            st.error(f"Simulation failed: {e}")
+            return
+
+        st.session_state.cached_inputs_df = inputs_df
+        st.session_state.cached_measurements_df = measurements_df
+        st.session_state.cached_distances_m = distances_m
+        st.session_state.last_run_signature = current_sidebar_signature
+        status_placeholder.empty()
+    elif st.session_state.cached_inputs_df is None or st.session_state.cached_measurements_df is None:
         status_placeholder.markdown(
             '<div class="digilab-card">Configure the design in the sidebar, then click <b>Run simulation</b>.</div>',
             unsafe_allow_html=True,
         )
         return
-    status_placeholder.empty()
+    else:
+        status_placeholder.empty()
 
-    try:
-        distances_m = parse_distances(distances_text)
-    except Exception as e:
-        st.error(f"Could not parse distances: {e}")
-        return
-
-    box = Box(Lx=float(Lx), Ly=float(Ly), Lz=float(Lz))
-    detector = Detector(area_m2=float(area_m2), efficiency=float(efficiency), background_cps=float(background_cps), dwell_s=float(dwell_s))
-
-    bounds: Dict[str, Tuple[float, float]] = {
-        "width_x_m": b_width,
-        "depth_y_m": b_depth,
-        "height_z_m": b_height,
-        "mean_activity_bq": b_activity,
-        "size_sigma_m": b_size,
-    }
-
-    try:
-        inputs_df, measurements_df = run_design(
-            distances_m=distances_m,
-            box=box,
-            detector=detector,
-            bounds=bounds,
-            n_samples=int(n_samples),
-            strategy=str(strategy),
-            seed=int(seed),
-            mu_material_m_inv=float(mu_material_m_inv),
-            fov_half_angle_deg=fov_half_angle_deg,
-            distance_offset_m=float(distance_offset_m),
-            noise=str(noise),
-        )
-    except Exception as e:
-        st.error(f"Simulation failed: {e}")
-        return
+    inputs_df = st.session_state.cached_inputs_df
+    measurements_df = st.session_state.cached_measurements_df
+    distances_m = st.session_state.cached_distances_m
 
     left, right = st.columns([1, 1])
 
