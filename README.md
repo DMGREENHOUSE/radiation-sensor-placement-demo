@@ -14,7 +14,7 @@ Synthetic simulation toolkit for studying detector count-rate behavior versus st
 ## Quickstart
 
 ```bash
-cd /Users/danielgreenhouse/Documents/radiation-sensor-placement-demo
+cd radiation-sensor-placement-demo
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
