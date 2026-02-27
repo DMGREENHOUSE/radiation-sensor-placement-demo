@@ -1,5 +1,7 @@
 # Radiation Sensor Placement Demo
 
+![Overview](assets/overview.png)
+
 Synthetic simulation toolkit for studying detector count-rate behavior versus standoff distance, with:
 
 - A core physics-inspired simulator (`simulator/core.py`)

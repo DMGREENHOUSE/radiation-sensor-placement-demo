@@ -127,6 +127,10 @@ def main() -> None:
             unsafe_allow_html=True,
         )
 
+    overview_path = Path(__file__).resolve().parents[1] / "assets" / "overview.png"
+    if overview_path.exists():
+        st.image(str(overview_path), use_container_width=True)
+
     st.markdown("")
 
     with st.sidebar:
