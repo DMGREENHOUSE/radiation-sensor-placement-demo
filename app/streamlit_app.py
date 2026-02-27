@@ -143,24 +143,6 @@ def main() -> None:
         seed = st.number_input("Seed", min_value=0, max_value=2**31-1, value=0, step=1)
 
         st.divider()
-        st.header("Nuisance parameters")
-
-        use_fov = st.checkbox("Use FOV cone", value=True)
-        fov_half_angle_deg = st.slider("FOV half-angle (deg)", 1.0, 89.0, 30.0, 1.0) if use_fov else None
-
-        mu_material_m_inv = st.number_input("Material attenuation μ (1/m)", 0.0, 1e4, 8.0, 0.5)
-        noise = st.selectbox("Sensor noise", ["poisson", "none"], index=0)
-        distance_offset_m = st.number_input("Distance offset (m)", 0.0, 1.0, 0.0, 0.001, format="%.3f")
-
-        st.divider()
-        st.header("Detector")
-
-        area_m2 = st.number_input("Area (m²)", 1e-8, 0.1, 2.5e-4, 1e-5, format="%.6f")
-        efficiency = st.slider("Efficiency", 0.0, 1.0, 0.2, 0.01)
-        background_cps = st.number_input("Background (cps)", 0.0, 1e6, 1.5, 0.1)
-        dwell_s = st.number_input("Dwell time (s)", 0.001, 1e4, 2.0, 0.5)
-
-        st.divider()
         st.header("Fixed sample box")
         Lx = st.number_input("Box width Lx (m)", 1e-3, 10.0, 0.10, 0.01)
         Ly = st.number_input("Box depth Ly (m)", 1e-3, 10.0, 0.04, 0.01)
@@ -182,6 +164,24 @@ def main() -> None:
         b_height = bound_row("z position height_z_m", 0.0, float(Lz), 0.005)
         b_activity = bound_row("mean_activity_bq", 1e4, 1e6, 1e4, fmt="%.6g")
         b_size = bound_row("size_sigma_m", 0.001, 0.010, 0.0005)
+
+        st.divider()
+        st.header("Nuisance parameters")
+
+        use_fov = st.checkbox("Use FOV cone", value=True)
+        fov_half_angle_deg = st.slider("FOV half-angle (deg)", 1.0, 89.0, 30.0, 1.0) if use_fov else None
+
+        mu_material_m_inv = st.number_input("Material attenuation μ (1/m)", 0.0, 1e4, 8.0, 0.5)
+        noise = st.selectbox("Sensor noise", ["poisson", "none"], index=0)
+        distance_offset_m = st.number_input("Distance offset (m)", 0.0, 1.0, 0.0, 0.001, format="%.3f")
+
+        st.divider()
+        st.header("Detector")
+
+        area_m2 = st.number_input("Area (m²)", 1e-8, 0.1, 2.5e-4, 1e-5, format="%.6f")
+        efficiency = st.slider("Efficiency", 0.0, 1.0, 0.2, 0.01)
+        background_cps = st.number_input("Background (cps)", 0.0, 1e6, 1.5, 0.1)
+        dwell_s = st.number_input("Dwell time (s)", 0.001, 1e4, 2.0, 0.5)
 
         run_btn = st.button("Run simulation", use_container_width=True)
 
