@@ -321,7 +321,16 @@ def main() -> None:
     rng = np.random.default_rng(int(seed) + 2026)
     default_n = min(10, n_samples)
     default_ids = np.sort(rng.choice(sample_ids, size=default_n, replace=False))
-    default_selection = [{"sample_label": f"sample_{i}"} for i in default_ids]
+    sample_options = [f"sample_{i}" for i in sample_ids]
+    default_labels = [f"sample_{i}" for i in default_ids]
+    default_selection = [{"sample_label": lbl} for lbl in default_labels]
+
+    if "quick_look_selected_labels" not in st.session_state:
+        st.session_state.quick_look_selected_labels = default_labels
+    else:
+        selected = st.session_state.quick_look_selected_labels
+        if any(lbl not in sample_options for lbl in selected):
+            st.session_state.quick_look_selected_labels = default_labels
 
     plot_df = pd.DataFrame(
         {
@@ -330,16 +339,33 @@ def main() -> None:
             "cps": measurements_df.to_numpy().reshape(-1),
         }
     )
+    quick_look_left, quick_look_right = st.columns([5, 2])
+
+    with quick_look_right:
+        selected_labels = st.multiselect(
+            "Samples",
+            options=sample_options,
+            key="quick_look_selected_labels",
+            help="Scrollable list for selecting many samples at once.",
+        )
+
+    filtered_plot_df = plot_df[plot_df["sample_label"].isin(selected_labels)]
+    if filtered_plot_df.empty:
+        with quick_look_left:
+            st.info("Select at least one sample to display traces.")
+        # st.caption("Default selection is 10 random samples.")
+        return
 
     select_samples = alt.selection_point(
         fields=["sample_label"],
         bind="legend",
-        toggle=True,
+        toggle="true",
+        clear=False,
         value=default_selection,
     )
 
     quick_look_chart = (
-        alt.Chart(plot_df)
+        alt.Chart(filtered_plot_df)
         .mark_line()
         .encode(
             x=alt.X("distance_m:Q", title="Distance (m)"),
@@ -350,9 +376,10 @@ def main() -> None:
         .add_params(select_samples)
         .properties(height=380)
     )
-    st.altair_chart(quick_look_chart, use_container_width=True)
+    with quick_look_left:
+        st.altair_chart(quick_look_chart, use_container_width=True)
     st.caption(
-        f"Showing {default_n} random samples by default. Click sample names in the legend to select/deselect traces."
+        f"Use the sample list for bulk selection and the legend for quick toggling."
     )
 
 
