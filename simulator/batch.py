@@ -24,7 +24,7 @@ def run_design(
 ) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
     Produce two DataFrames:
-      1) inputs_df: hotspot params + nuisance params echoed
+      1) inputs_df: sampled hotspot parameters
       2) measurements_df: measured cps at each candidate distance
     """
     distances_m = np.asarray(distances_m, dtype=float).ravel()
@@ -33,12 +33,6 @@ def run_design(
 
     sampled = sample_inputs(bounds, n=n_samples, strategy=strategy, seed=seed)
     inputs_df = pd.DataFrame(sampled)
-    inputs_df.insert(0, "sample_id", np.arange(len(inputs_df), dtype=int))
-
-    inputs_df["mu_material_m_inv"] = float(mu_material_m_inv)
-    inputs_df["fov_half_angle_deg"] = np.nan if fov_half_angle_deg is None else float(fov_half_angle_deg)
-    inputs_df["noise"] = str(noise)
-    inputs_df["distance_offset_m"] = float(distance_offset_m)
 
     meas_cols = [f"cps_d_{d:.6g}m" for d in distances_m]
     meas = np.empty((len(inputs_df), len(distances_m)), dtype=float)
@@ -66,5 +60,4 @@ def run_design(
         meas[i, :] = measured
 
     measurements_df = pd.DataFrame(meas, columns=meas_cols)
-    measurements_df.insert(0, "sample_id", inputs_df["sample_id"].values)
     return inputs_df, measurements_df

@@ -255,7 +255,7 @@ def main() -> None:
 
     st.markdown("")
     st.subheader("Quick look")
-    means = measurements_df.drop(columns=["sample_id"]).mean(axis=0).to_numpy()
+    means = measurements_df.mean(axis=0).to_numpy()
     plot_df = pd.DataFrame({"distance_m": distances_m, "mean_cps": means})
     st.line_chart(plot_df.set_index("distance_m")[["mean_cps"]])
     st.caption("Mean count rate vs distance (across samples).")
