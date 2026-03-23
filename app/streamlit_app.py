@@ -241,25 +241,34 @@ def extract_qoi_values(
     return values
 
 
-def gaussian_curve_df(truth: float, mean: float, std: float) -> pd.DataFrame:
+def gaussian_curve_df(truth: float, mean: float, std: float, bounds: Tuple[float, float]) -> pd.DataFrame:
     sigma = max(float(std), 1e-9)
-    extent = max(4.0 * sigma, abs(truth - mean) * 1.2, 1e-9)
-    x_min = min(truth, mean) - extent
-    x_max = max(truth, mean) + extent
+    x_min = float(bounds[0])
+    x_max = float(bounds[1])
     x = np.linspace(x_min, x_max, 300)
     density = (1.0 / (sigma * np.sqrt(2.0 * np.pi))) * np.exp(-0.5 * ((x - mean) / sigma) ** 2)
     return pd.DataFrame({"value": x, "density": density})
 
 
-def comparison_chart(quantity: str, truth: float, mean: float, std: float) -> alt.Chart:
-    curve_df = gaussian_curve_df(truth, mean, std)
+def comparison_chart(
+    quantity: str,
+    truth: float,
+    mean: float,
+    std: float,
+    bounds: Tuple[float, float],
+) -> alt.Chart:
+    curve_df = gaussian_curve_df(truth, mean, std, bounds)
     truth_df = pd.DataFrame({"truth": [truth]})
     mean_df = pd.DataFrame({"mean": [mean]})
+    x_scale = alt.Scale(domain=[float(bounds[0]), float(bounds[1])])
 
     area = (
         alt.Chart(curve_df)
         .mark_area(color=GREY, opacity=0.28)
-        .encode(x=alt.X("value:Q", title=quantity), y=alt.Y("density:Q", title="Density"))
+        .encode(
+            x=alt.X("value:Q", title=quantity, scale=x_scale),
+            y=alt.Y("density:Q", title="Probability Density"),
+        )
     )
     line = (
         alt.Chart(curve_df)
@@ -469,30 +478,25 @@ def render_generate_measurement_tab(
         if measurement_df is not None:
             st.markdown("##### Measurements")
             st.dataframe(measurement_df, use_container_width=True, height=260)
-            measurement_file_name = st.text_input(
-                "Measurement CSV filename",
-                value="generated_measurement.csv",
-                key="measurement_csv_filename",
+            file_prefix = st.text_input(
+                "CSV filename prefix",
+                value="generated",
+                key="generated_csv_prefix",
             )
             st.download_button(
                 "Download measurement CSV",
                 data=df_to_csv_bytes(measurement_df),
-                file_name=measurement_file_name or "generated_measurement.csv",
+                file_name=f"{(file_prefix or 'generated')}_measurement.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
             truth_values = st.session_state.get("generated_truth_qoi")
             if truth_values is not None:
                 truth_df = truth_dataframe(truth_values)
-                truth_file_name = st.text_input(
-                    "Truth CSV filename",
-                    value="generated_truth.csv",
-                    key="truth_csv_filename",
-                )
                 st.download_button(
                     "Download truth CSV",
                     data=df_to_csv_bytes(truth_df),
-                    file_name=truth_file_name or "generated_truth.csv",
+                    file_name=f"{(file_prefix or 'generated')}_truth.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )
@@ -501,36 +505,38 @@ def render_generate_measurement_tab(
 
     st.divider()
     st.subheader("Compare results")
-    st.caption("Upload predicted means and standard deviations as CSV files to compare them against the truth values from the controls above.")
+    st.caption("Upload truth, predicted means, and standard deviations as CSV files to compare them.")
 
-    upload_left, upload_right = st.columns(2)
+    upload_left, upload_mid, upload_right = st.columns(3)
     with upload_left:
+        truth_file = st.file_uploader("Truth CSV", type=["csv"], key="comparison_truth_csv")
+    with upload_mid:
         mean_file = st.file_uploader("Predicted mean CSV", type=["csv"], key="comparison_mean_csv")
     with upload_right:
         std_file = st.file_uploader("Predicted uncertainty CSV", type=["csv"], key="comparison_std_csv")
 
-    truth_qoi = st.session_state.get("generated_truth_qoi", {field: float(st.session_state[f"measurement_{field}"]) for field in QOI_FIELDS})
-
-    if mean_file is None or std_file is None:
-        st.info("Upload both CSV files to render the comparison plots.")
+    if truth_file is None or mean_file is None or std_file is None:
+        st.info("Upload all three CSV files to render the comparison plots.")
         return
 
     try:
+        truth_df = read_csv_upload(truth_file)
         mean_df = read_csv_upload(mean_file)
         std_df = read_csv_upload(std_file)
+        truth_qoi = extract_qoi_values(truth_df, QOI_FIELDS, value_candidates=["truth", "value"])
         mean_values = extract_qoi_values(mean_df, QOI_FIELDS, value_candidates=["mean", "prediction", "predicted_mean", "value"])
         std_values = extract_qoi_values(std_df, QOI_FIELDS, value_candidates=["std", "sd", "sigma", "uncertainty", "value"])
     except Exception as exc:
         st.error(f"Could not read comparison CSVs: {exc}")
         return
 
-    missing = [field for field in QOI_FIELDS if field not in mean_values or field not in std_values]
+    missing = [field for field in QOI_FIELDS if field not in truth_qoi or field not in mean_values or field not in std_values]
     if missing:
         st.warning(
             "Missing comparison values for: " + ", ".join(missing)
         )
 
-    available = [field for field in QOI_FIELDS if field in mean_values and field in std_values]
+    available = [field for field in QOI_FIELDS if field in truth_qoi and field in mean_values and field in std_values]
     if not available:
         st.info("No recognised QOI values were found in the uploaded CSV files.")
         return
@@ -541,6 +547,7 @@ def render_generate_measurement_tab(
             truth=float(truth_qoi[field]),
             mean=float(mean_values[field]),
             std=float(std_values[field]),
+            bounds=bounds[field],
         )
         st.altair_chart(chart, use_container_width=True)
 
