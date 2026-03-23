@@ -25,19 +25,27 @@ INK = "#000000"
 BG = "#FFFFFF"
 
 QOI_FIELDS = [
+    "mean_activity_bq",
     "width_x_m",
     "depth_y_m",
     "height_z_m",
-    "mean_activity_bq",
     "size_sigma_m",
 ]
 
+QOI_PUBLIC_NAMES = {
+    "mean_activity_bq": "activity_mean_bq",
+    "width_x_m": "x_position_m",
+    "depth_y_m": "y_position_m",
+    "height_z_m": "z_position_m",
+    "size_sigma_m": "size_m",
+}
+
 QOI_LABELS = {
-    "width_x_m": "x position width_x_m",
-    "depth_y_m": "y position depth_y_m",
-    "height_z_m": "z position height_z_m",
-    "mean_activity_bq": "mean_activity_bq",
-    "size_sigma_m": "size_sigma_m",
+    "mean_activity_bq": "activity_mean_bq",
+    "width_x_m": "x_position_m",
+    "depth_y_m": "y_position_m",
+    "height_z_m": "z_position_m",
+    "size_sigma_m": "size_m",
 }
 
 
@@ -157,6 +165,24 @@ def slider_step(bounds: Tuple[float, float]) -> float:
     return max((float(hi) - float(lo)) / 100.0, 1e-6)
 
 
+def sensor_name(distance: float) -> str:
+    return f"d_{distance:.6g}m"
+
+
+def present_qoi_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    ordered_columns = [field for field in QOI_FIELDS if field in df.columns]
+    renamed = df.loc[:, ordered_columns].rename(columns=QOI_PUBLIC_NAMES)
+    return renamed
+
+
+def present_measurements_dataframe(df: pd.DataFrame, distances_m: np.ndarray) -> pd.DataFrame:
+    renamed_columns = {
+        original: sensor_name(distance)
+        for original, distance in zip(df.columns.tolist(), np.asarray(distances_m, dtype=float))
+    }
+    return df.rename(columns=renamed_columns)
+
+
 def make_hotspot(values: Dict[str, float]) -> Hotspot:
     return Hotspot(
         width_x_m=float(values["width_x_m"]),
@@ -168,7 +194,7 @@ def make_hotspot(values: Dict[str, float]) -> Hotspot:
 
 
 def truth_dataframe(values: Dict[str, float]) -> pd.DataFrame:
-    return pd.DataFrame([values])
+    return pd.DataFrame([{QOI_PUBLIC_NAMES[key]: value for key, value in values.items()}])
 
 
 def measurement_dataframe(
@@ -195,7 +221,7 @@ def measurement_dataframe(
         noise=noise,  # type: ignore[arg-type]
         rng=rng,
     )
-    sensor_names = [f"sensor_{distance:.6g}m" for distance in distances_m]
+    sensor_names = [sensor_name(distance) for distance in distances_m]
     measurement_row = {sensor_name: value for sensor_name, value in zip(sensor_names, measured_cps)}
     return pd.DataFrame([measurement_row])
 
@@ -216,10 +242,13 @@ def extract_qoi_values(
     if df.empty:
         raise ValueError("Uploaded CSV is empty.")
 
-    wide_matches = [field for field in qoi_fields if field in df.columns]
+    allowed_names = {field: field for field in qoi_fields}
+    allowed_names.update({public_name: internal_name for internal_name, public_name in QOI_PUBLIC_NAMES.items()})
+
+    wide_matches = [column for column in df.columns if column in allowed_names]
     if wide_matches:
         row = df.iloc[0]
-        return {field: float(row[field]) for field in wide_matches}
+        return {allowed_names[field]: float(row[field]) for field in wide_matches}
 
     lowered = {str(col).strip().lower(): col for col in df.columns}
     name_col = next(
@@ -236,8 +265,8 @@ def extract_qoi_values(
     values: Dict[str, float] = {}
     for _, row in df[[name_col, value_col]].dropna().iterrows():
         qoi_name = str(row[name_col]).strip()
-        if qoi_name in qoi_fields:
-            values[qoi_name] = float(row[value_col])
+        if qoi_name in allowed_names:
+            values[allowed_names[qoi_name]] = float(row[value_col])
     return values
 
 
@@ -305,14 +334,17 @@ def render_design_results(
             )
         return
 
+    presented_inputs_df = present_qoi_dataframe(inputs_df)
+    presented_measurements_df = present_measurements_dataframe(measurements_df, distances_m)
+
     left, right = st.columns([1, 1])
 
     with left:
         st.subheader("Quantities of Interest")
-        st.dataframe(inputs_df, use_container_width=True, height=420)
+        st.dataframe(presented_inputs_df, use_container_width=True, height=420)
         st.download_button(
             "Download quantities_of_interest CSV",
-            data=df_to_csv_bytes(inputs_df),
+            data=df_to_csv_bytes(presented_inputs_df),
             file_name="quantities_of_interest.csv",
             mime="text/csv",
             use_container_width=True,
@@ -320,10 +352,10 @@ def render_design_results(
 
     with right:
         st.subheader("Measurements dataframe")
-        st.dataframe(measurements_df, use_container_width=True, height=420)
+        st.dataframe(presented_measurements_df, use_container_width=True, height=420)
         st.download_button(
             "Download measurements CSV",
-            data=df_to_csv_bytes(measurements_df),
+            data=df_to_csv_bytes(presented_measurements_df),
             file_name="measurements.csv",
             mime="text/csv",
             use_container_width=True,
@@ -440,7 +472,7 @@ def render_generate_measurement_tab(
 
     with outputs_col:
         st.markdown("##### Available sensors")
-        sensor_choices = [f"{distance:.6g} m" for distance in distances_m]
+        sensor_choices = [sensor_name(distance) for distance in distances_m]
         default_selected = sensor_choices if "selected_measurement_sensors" not in st.session_state else st.session_state.selected_measurement_sensors
         selected_sensors = st.multiselect(
             "Sensors",
@@ -480,13 +512,13 @@ def render_generate_measurement_tab(
             st.dataframe(measurement_df, use_container_width=True, height=260)
             file_prefix = st.text_input(
                 "CSV filename prefix",
-                value="generated",
+                value="test",
                 key="generated_csv_prefix",
             )
             st.download_button(
                 "Download measurement CSV",
                 data=df_to_csv_bytes(measurement_df),
-                file_name=f"{(file_prefix or 'generated')}_measurement.csv",
+                file_name=f"{(file_prefix or 'test')}_measurement.csv",
                 mime="text/csv",
                 use_container_width=True,
             )
@@ -496,7 +528,7 @@ def render_generate_measurement_tab(
                 st.download_button(
                     "Download truth CSV",
                     data=df_to_csv_bytes(truth_df),
-                    file_name=f"{(file_prefix or 'generated')}_truth.csv",
+                    file_name=f"{(file_prefix or 'test')}_truth.csv",
                     mime="text/csv",
                     use_container_width=True,
                 )
@@ -543,7 +575,7 @@ def render_generate_measurement_tab(
 
     for field in available:
         chart = comparison_chart(
-            field,
+            QOI_PUBLIC_NAMES[field],
             truth=float(truth_qoi[field]),
             mean=float(mean_values[field]),
             std=float(std_values[field]),
@@ -582,20 +614,20 @@ def main() -> None:
 
         distances_text = st.text_area(
             "Candidate distances (m)",
-            value="0.025, 0.05, 0.075, 0.10, 0.15, 0.20, 0.25",
+            value="0.01, 0.025, 0.05, 0.075, 0.10, 0.15, 0.20, 0.25",
             help="Comma or space separated.",
             height=90,
         )
 
-        n_samples = st.number_input("Number of samples", min_value=1, max_value=50000, value=400, step=10)
-        strategy = st.selectbox("Sampling strategy", ["lhs", "sobol", "random"], index=0)
+        n_samples = st.number_input("Number of samples", min_value=1, max_value=50000, value=200, step=10)
+        strategy = st.selectbox("Sampling strategy", ["lhs", "sobol", "random"], index=1)
         seed = st.number_input("Seed", min_value=0, max_value=2**31 - 1, value=0, step=1)
 
         st.divider()
         st.header("Fixed sample box")
-        Lx = st.number_input("Box width Lx (m)", 1e-3, 10.0, 0.10, 0.01)
-        Ly = st.number_input("Box depth Ly (m)", 1e-3, 10.0, 0.04, 0.01)
-        Lz = st.number_input("Box height Lz (m)", 1e-3, 10.0, 0.10, 0.01)
+        Lx = st.number_input("Box width Lx (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
+        Ly = st.number_input("Box depth Ly (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
+        Lz = st.number_input("Box height Lz (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
 
         st.divider()
         st.header("Hotspot bounds")
@@ -608,11 +640,11 @@ def main() -> None:
                 high_value = st.number_input(f"{label} high", value=hi, step=step, format=fmt)
             return float(low_value), float(high_value)
 
-        b_width = bound_row("x position width_x_m", 0.0, float(Lx), 0.005)
-        b_depth = bound_row("y position depth_y_m", 0.0, float(Ly), 0.002)
-        b_height = bound_row("z position height_z_m", 0.0, float(Lz), 0.005)
-        b_activity = bound_row("mean_activity_bq", 1e4, 1e6, 1e4, fmt="%.6g")
-        b_size = bound_row("size_sigma_m", 0.001, 0.010, 0.0005)
+        b_activity = bound_row("activity_mean_bq", 1e4, 1e6, 1e4, fmt="%.6g")
+        b_width = bound_row("x_position_m", 0.0, float(Lx), 0.005)
+        b_depth = bound_row("y_position_m", 0.0, float(Ly), 0.005)
+        b_height = bound_row("z_position_m", 0.0, float(Lz), 0.005)
+        b_size = bound_row("size_m", 0.001, 0.010, 0.0005)
 
         st.divider()
         st.header("Nuisance parameters")
@@ -621,7 +653,7 @@ def main() -> None:
         fov_half_angle_deg = st.slider("FOV half-angle (deg)", 1.0, 89.0, 30.0, 1.0) if use_fov else None
 
         mu_material_m_inv = st.number_input("Material attenuation μ (1/m)", 0.0, 1e4, 8.0, 0.5)
-        noise = st.selectbox("Sensor noise", ["none", "poisson"], index=0)
+        noise = st.selectbox("Sensor noise", ["none", "poisson"], index=1)
         distance_offset_m = st.number_input("Distance offset (m)", 0.0, 1.0, 0.0, 0.001, format="%.3f")
 
         st.divider()
