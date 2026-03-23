@@ -14,7 +14,13 @@ dependencies = [
   "scipy>=1.10",
 ]
 
-[project.optional-dependencies]
+[tool.poetry]
+package-mode = false
+packages = [
+  { include = "simulator" },
+]
+
+[dependency-groups]
 dev = [
   "pytest>=7.0",
   "streamlit>=1.32",
@@ -22,3 +28,6 @@ dev = [
 
 [tool.setuptools]
 packages = ["simulator", "simulator.sampling", "simulator.tests"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
