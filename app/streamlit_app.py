@@ -26,21 +26,15 @@ INK = "#000000"
 BG = "#FFFFFF"
 
 QOI_FIELDS = [
-    "width_x_m",
-    "depth_y_m",
-    "height_z_m",
+    "mean_activity_bq",
 ]
 
 QOI_PUBLIC_NAMES = {
-    "width_x_m": "x_position_m",
-    "depth_y_m": "y_position_m",
-    "height_z_m": "z_position_m",
+    "mean_activity_bq": "activity_mean_bq",
 }
 
 QOI_LABELS = {
-    "width_x_m": "x_position_m",
-    "depth_y_m": "y_position_m",
-    "height_z_m": "z_position_m",
+    "mean_activity_bq": "activity_mean_bq",
 }
 
 
@@ -165,9 +159,12 @@ def sensor_names(n_sensors: int) -> list[str]:
 
 
 def default_sensor_positions(box: Box) -> np.ndarray:
-    x_levels = np.linspace(-0.15 * box.Lx, 1.15 * box.Lx, 3)
-    y_levels = np.array([-1.1 * box.Ly, -0.55 * box.Ly, -0.15 * box.Ly], dtype=float)
-    z_levels = np.linspace(-0.15 * box.Lz, 1.15 * box.Lz, 5)
+    fixed_span_m = 0.5
+    x_center = box.Lx / 2.0
+    z_center = box.Lz / 2.0
+    x_levels = np.linspace(x_center - fixed_span_m / 2.0, x_center + fixed_span_m / 2.0, 3)
+    y_levels = np.array([-0.30, -0.18, -0.06], dtype=float)
+    z_levels = np.linspace(z_center - fixed_span_m / 2.0, z_center + fixed_span_m / 2.0, 5)
 
     positions = []
     for z_index, z_value in enumerate(z_levels):
@@ -205,11 +202,20 @@ def present_measurements_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy()
 
 
-def make_hotspot(values: Dict[str, float], *, activity_mean_bq: float, size_m: float) -> Hotspot:
+def hotspot_center_values(box: Box) -> Dict[str, float]:
+    return {
+        "width_x_m": float(box.Lx / 2.0),
+        "depth_y_m": float(box.Ly / 2.0),
+        "height_z_m": float(box.Lz / 2.0),
+    }
+
+
+def make_centered_hotspot(box: Box, *, activity_mean_bq: float, size_m: float) -> Hotspot:
+    center = hotspot_center_values(box)
     return Hotspot(
-        width_x_m=float(values["width_x_m"]),
-        depth_y_m=float(values["depth_y_m"]),
-        height_z_m=float(values["height_z_m"]),
+        width_x_m=center["width_x_m"],
+        depth_y_m=center["depth_y_m"],
+        height_z_m=center["height_z_m"],
         mean_activity_bq=float(activity_mean_bq),
         size_sigma_m=float(size_m),
     )
@@ -482,7 +488,6 @@ def render_generate_measurement_tab(
     bounds: Dict[str, Tuple[float, float]],
     box: Box,
     detector: Detector,
-    activity_mean_bq: float,
     size_m: float,
     mu_material_m_inv: float,
     fov_half_angle_deg: Optional[float],
@@ -490,25 +495,31 @@ def render_generate_measurement_tab(
     noise: str,
     seed: int,
 ) -> None:
-    st.subheader("Generate measurement")
-    st.caption("Tune a single hotspot within the configured bounds, choose available sensors, and export the simulated measurements.")
+    st.subheader("Test performance")
+    st.caption("Tune source activity for a hotspot fixed at the centre of the box, choose available sensors, and export the simulated measurements.")
 
     controls_col, outputs_col = st.columns([1.4, 1.0], gap="large")
 
     with controls_col:
         st.markdown("##### Quantities of Interest")
-        qoi_values: Dict[str, float] = {}
-        for field in QOI_FIELDS:
-            lo, hi = bounds[field]
-            default_value = float(st.session_state.get(f"measurement_{field}", midpoint((lo, hi))))
-            qoi_values[field] = st.slider(
-                QOI_LABELS[field],
+        center = hotspot_center_values(box)
+        st.info(
+            "Hotspot position is fixed at the sample centre: "
+            f"x={center['width_x_m']:.3f} m, y={center['depth_y_m']:.3f} m, z={center['height_z_m']:.3f} m. "
+            f"Source size is fixed at {size_m:.3f} m."
+        )
+        lo, hi = bounds["mean_activity_bq"]
+        default_value = float(st.session_state.get("measurement_mean_activity_bq", midpoint((lo, hi))))
+        qoi_values: Dict[str, float] = {
+            "mean_activity_bq": st.slider(
+                QOI_LABELS["mean_activity_bq"],
                 min_value=float(lo),
                 max_value=float(hi),
                 value=min(max(default_value, float(lo)), float(hi)),
                 step=slider_step((lo, hi)),
-                key=f"measurement_{field}",
+                key="measurement_mean_activity_bq",
             )
+        }
 
     with outputs_col:
         st.markdown("##### Available sensors")
@@ -534,7 +545,11 @@ def render_generate_measurement_tab(
                     sensor_positions_m=selected_positions,
                     box=box,
                     detector=detector,
-                    hotspot=make_hotspot(qoi_values, activity_mean_bq=activity_mean_bq, size_m=size_m),
+                    hotspot=make_centered_hotspot(
+                        box,
+                        activity_mean_bq=qoi_values["mean_activity_bq"],
+                        size_m=size_m,
+                    ),
                     mu_material_m_inv=mu_material_m_inv,
                     fov_half_angle_deg=fov_half_angle_deg,
                     distance_offset_m=distance_offset_m,
@@ -637,7 +652,7 @@ def main() -> None:
     with cols[1]:
         st.markdown('<div class="digilab-title">Hotspot Detector Simulator</div>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="digilab-subtitle">Generate synthetic count-rate measurements vs detector distance for a fixed-size sample box, with nuisance parameters and DOE sampling.</p>',
+            '<p class="digilab-subtitle">Generate synthetic count-rate measurements around a fixed sample box, with centred source geometry and activity as the quantity of interest.</p>',
             unsafe_allow_html=True,
         )
 
@@ -649,7 +664,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Experiment design")
-        st.caption("The simulator uses a fixed 3D layout of 15 sensors labeled S1-S15 around the sample volume.")
+        st.caption("The simulator uses a fixed 3D layout of 15 sensors labeled S1-S15 around a small fixed sample volume.")
 
         n_samples = st.number_input("Number of samples", min_value=1, max_value=50000, value=200, step=10)
         strategy = st.selectbox("Sampling strategy", ["lhs", "sobol", "random"], index=1)
@@ -657,14 +672,15 @@ def main() -> None:
 
         st.divider()
         st.header("Fixed sample box")
-        Lx = st.number_input("Box width Lx (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
-        Ly = st.number_input("Box depth Ly (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
-        Lz = st.number_input("Box height Lz (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
+        Lx = 0.05
+        Ly = 0.05
+        Lz = 0.05
+        st.caption("The sample box is fixed at 0.05 m x 0.05 m x 0.05 m.")
 
         st.divider()
-        st.header("Position bounds")
+        st.header("Activity bounds")
 
-        def bound_row(label: str, lo: float, hi: float, step: float, fmt: str = "%.6f") -> Tuple[float, float]:
+        def bound_row(label: str, lo: float, hi: float, step: float, fmt: str = "%.6g") -> Tuple[float, float]:
             c1, c2 = st.columns(2)
             with c1:
                 low_value = st.number_input(f"{label} low", value=lo, step=step, format=fmt)
@@ -672,13 +688,11 @@ def main() -> None:
                 high_value = st.number_input(f"{label} high", value=hi, step=step, format=fmt)
             return float(low_value), float(high_value)
 
-        b_width = bound_row("x_position_m", 0.0, float(Lx), 0.005)
-        b_depth = bound_row("y_position_m", 0.0, float(Ly), 0.005)
-        b_height = bound_row("z_position_m", 0.0, float(Lz), 0.005)
+        b_activity = bound_row("activity_mean_bq", 1e4, 1e6, 1e4)
 
         st.divider()
         st.header("Fixed source parameters")
-        activity_mean_bq = st.number_input("activity_mean_bq", min_value=0.0, max_value=1e9, value=2e5, step=1e4, format="%.6g")
+        st.caption("The hotspot remains centred in the box for every design sample.")
         size_m = st.number_input("size_m", min_value=1e-6, max_value=1.0, value=0.003, step=0.001, format="%.3f")
 
         st.divider()
@@ -709,9 +723,7 @@ def main() -> None:
         dwell_s=float(dwell_s),
     )
     bounds: Dict[str, Tuple[float, float]] = {
-        "width_x_m": b_width,
-        "depth_y_m": b_depth,
-        "height_z_m": b_height,
+        "mean_activity_bq": b_activity,
     }
 
     current_sidebar_signature = (
@@ -721,10 +733,7 @@ def main() -> None:
         float(Lx),
         float(Ly),
         float(Lz),
-        tuple(map(float, b_width)),
-        tuple(map(float, b_depth)),
-        tuple(map(float, b_height)),
-        float(activity_mean_bq),
+        tuple(map(float, b_activity)),
         float(size_m),
         bool(use_fov),
         None if fov_half_angle_deg is None else float(fov_half_angle_deg),
@@ -756,7 +765,7 @@ def main() -> None:
         st.session_state.cached_inputs_df = None
         st.session_state.cached_measurements_df = None
 
-    design_tab, measurement_tab = st.tabs(["Sensor Placement Optimisation", "Generate measurement"])
+    design_tab, measurement_tab = st.tabs(["Sensor Placement Optimisation", "Test performance"])
 
     with design_tab:
         run_btn = st.button("Run simulation", key="run_design_simulation", use_container_width=True)
@@ -769,7 +778,7 @@ def main() -> None:
                     detector=detector,
                     bounds=bounds,
                     fixed_params={
-                        "mean_activity_bq": float(activity_mean_bq),
+                        **hotspot_center_values(box),
                         "size_sigma_m": float(size_m),
                     },
                     n_samples=int(n_samples),
@@ -802,7 +811,6 @@ def main() -> None:
             bounds=bounds,
             box=box,
             detector=detector,
-            activity_mean_bq=float(activity_mean_bq),
             size_m=float(size_m),
             mu_material_m_inv=float(mu_material_m_inv),
             fov_half_angle_deg=fov_half_angle_deg,

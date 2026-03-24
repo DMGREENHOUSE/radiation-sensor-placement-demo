@@ -36,3 +36,31 @@ def test_simulator_accepts_explicit_sensor_positions():
     assert measured.shape == (3,)
     assert np.all(expected >= 0)
     assert np.all(measured >= 0)
+
+
+def test_centered_source_activity_controls_signal_strength():
+    box = Box(Lx=0.05, Ly=0.05, Lz=0.05)
+    det = Detector(area_m2=1e-4, efficiency=0.2, background_cps=1.0, dwell_s=1.0)
+    center = dict(width_x_m=box.Lx / 2.0, depth_y_m=box.Ly / 2.0, height_z_m=box.Lz / 2.0, size_sigma_m=0.002)
+    low_activity = Hotspot(mean_activity_bq=5e4, **center)
+    high_activity = Hotspot(mean_activity_bq=2e5, **center)
+    sensor_positions = np.array([[box.Lx / 2.0, -0.03, box.Lz / 2.0]])
+
+    low_expected, _ = simulate_measured_activity(
+        None,
+        box=box,
+        detector=det,
+        hotspot=low_activity,
+        sensor_positions_m=sensor_positions,
+        noise="none",
+    )
+    high_expected, _ = simulate_measured_activity(
+        None,
+        box=box,
+        detector=det,
+        hotspot=high_activity,
+        sensor_positions_m=sensor_positions,
+        noise="none",
+    )
+
+    assert high_expected[0] > low_expected[0]
