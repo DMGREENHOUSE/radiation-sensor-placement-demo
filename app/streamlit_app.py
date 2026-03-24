@@ -26,27 +26,21 @@ INK = "#000000"
 BG = "#FFFFFF"
 
 QOI_FIELDS = [
-    "mean_activity_bq",
     "width_x_m",
     "depth_y_m",
     "height_z_m",
-    "size_sigma_m",
 ]
 
 QOI_PUBLIC_NAMES = {
-    "mean_activity_bq": "activity_mean_bq",
     "width_x_m": "x_position_m",
     "depth_y_m": "y_position_m",
     "height_z_m": "z_position_m",
-    "size_sigma_m": "size_m",
 }
 
 QOI_LABELS = {
-    "mean_activity_bq": "activity_mean_bq",
     "width_x_m": "x_position_m",
     "depth_y_m": "y_position_m",
     "height_z_m": "z_position_m",
-    "size_sigma_m": "size_m",
 }
 
 
@@ -211,13 +205,13 @@ def present_measurements_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     return df.copy()
 
 
-def make_hotspot(values: Dict[str, float]) -> Hotspot:
+def make_hotspot(values: Dict[str, float], *, activity_mean_bq: float, size_m: float) -> Hotspot:
     return Hotspot(
         width_x_m=float(values["width_x_m"]),
         depth_y_m=float(values["depth_y_m"]),
         height_z_m=float(values["height_z_m"]),
-        mean_activity_bq=float(values["mean_activity_bq"]),
-        size_sigma_m=float(values["size_sigma_m"]),
+        mean_activity_bq=float(activity_mean_bq),
+        size_sigma_m=float(size_m),
     )
 
 
@@ -488,6 +482,8 @@ def render_generate_measurement_tab(
     bounds: Dict[str, Tuple[float, float]],
     box: Box,
     detector: Detector,
+    activity_mean_bq: float,
+    size_m: float,
     mu_material_m_inv: float,
     fov_half_angle_deg: Optional[float],
     distance_offset_m: float,
@@ -505,7 +501,6 @@ def render_generate_measurement_tab(
         for field in QOI_FIELDS:
             lo, hi = bounds[field]
             default_value = float(st.session_state.get(f"measurement_{field}", midpoint((lo, hi))))
-            slider_format = "%.3f" if field == "size_sigma_m" else None
             qoi_values[field] = st.slider(
                 QOI_LABELS[field],
                 min_value=float(lo),
@@ -513,7 +508,6 @@ def render_generate_measurement_tab(
                 value=min(max(default_value, float(lo)), float(hi)),
                 step=slider_step((lo, hi)),
                 key=f"measurement_{field}",
-                format=slider_format,
             )
 
     with outputs_col:
@@ -540,7 +534,7 @@ def render_generate_measurement_tab(
                     sensor_positions_m=selected_positions,
                     box=box,
                     detector=detector,
-                    hotspot=make_hotspot(qoi_values),
+                    hotspot=make_hotspot(qoi_values, activity_mean_bq=activity_mean_bq, size_m=size_m),
                     mu_material_m_inv=mu_material_m_inv,
                     fov_half_angle_deg=fov_half_angle_deg,
                     distance_offset_m=distance_offset_m,
@@ -668,7 +662,7 @@ def main() -> None:
         Lz = st.number_input("Box height Lz (m)", 1e-6, 10.0, 0.05, 0.001, format="%.3f")
 
         st.divider()
-        st.header("Hotspot bounds")
+        st.header("Position bounds")
 
         def bound_row(label: str, lo: float, hi: float, step: float, fmt: str = "%.6f") -> Tuple[float, float]:
             c1, c2 = st.columns(2)
@@ -678,11 +672,14 @@ def main() -> None:
                 high_value = st.number_input(f"{label} high", value=hi, step=step, format=fmt)
             return float(low_value), float(high_value)
 
-        b_activity = bound_row("activity_mean_bq", 1e4, 1e6, 1e4, fmt="%.6g")
         b_width = bound_row("x_position_m", 0.0, float(Lx), 0.005)
         b_depth = bound_row("y_position_m", 0.0, float(Ly), 0.005)
         b_height = bound_row("z_position_m", 0.0, float(Lz), 0.005)
-        b_size = bound_row("size_m", 0.001, 0.010, 0.0005)
+
+        st.divider()
+        st.header("Fixed source parameters")
+        activity_mean_bq = st.number_input("activity_mean_bq", min_value=0.0, max_value=1e9, value=2e5, step=1e4, format="%.6g")
+        size_m = st.number_input("size_m", min_value=1e-6, max_value=1.0, value=0.003, step=0.001, format="%.3f")
 
         st.divider()
         st.header("Nuisance parameters")
@@ -715,8 +712,6 @@ def main() -> None:
         "width_x_m": b_width,
         "depth_y_m": b_depth,
         "height_z_m": b_height,
-        "mean_activity_bq": b_activity,
-        "size_sigma_m": b_size,
     }
 
     current_sidebar_signature = (
@@ -729,8 +724,8 @@ def main() -> None:
         tuple(map(float, b_width)),
         tuple(map(float, b_depth)),
         tuple(map(float, b_height)),
-        tuple(map(float, b_activity)),
-        tuple(map(float, b_size)),
+        float(activity_mean_bq),
+        float(size_m),
         bool(use_fov),
         None if fov_half_angle_deg is None else float(fov_half_angle_deg),
         float(mu_material_m_inv),
@@ -773,6 +768,10 @@ def main() -> None:
                     box=box,
                     detector=detector,
                     bounds=bounds,
+                    fixed_params={
+                        "mean_activity_bq": float(activity_mean_bq),
+                        "size_sigma_m": float(size_m),
+                    },
                     n_samples=int(n_samples),
                     strategy=str(strategy),
                     seed=int(seed),
@@ -803,6 +802,8 @@ def main() -> None:
             bounds=bounds,
             box=box,
             detector=detector,
+            activity_mean_bq=float(activity_mean_bq),
+            size_m=float(size_m),
             mu_material_m_inv=float(mu_material_m_inv),
             fov_half_angle_deg=fov_half_angle_deg,
             distance_offset_m=float(distance_offset_m),

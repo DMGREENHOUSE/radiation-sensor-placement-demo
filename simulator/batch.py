@@ -17,6 +17,7 @@ def run_design(
     detector: Detector,
     bounds: Dict[str, Tuple[float, float]],
     n_samples: int,
+    fixed_params: Optional[Dict[str, float]] = None,
     strategy: str = "lhs",
     seed: int = 0,
     mu_material_m_inv: float = 0.0,
@@ -46,6 +47,9 @@ def run_design(
 
     sampled = sample_inputs(bounds, n=n_samples, strategy=strategy, seed=seed)
     inputs_df = pd.DataFrame(sampled)
+    if fixed_params:
+        for key, value in fixed_params.items():
+            inputs_df[key] = float(value)
 
     meas = np.empty((len(inputs_df), len(measurement_columns)), dtype=float)
 
