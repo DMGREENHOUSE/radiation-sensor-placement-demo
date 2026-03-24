@@ -5,12 +5,12 @@ from simulator.batch import run_design
 
 
 def test_run_design_can_use_activity_as_the_only_qoi():
-    box = Box(Lx=0.05, Ly=0.05, Lz=0.05)
+    box = Box(Lx=0.05, Ly=0.05, Lz=0.12)
     detector = Detector(area_m2=1e-4, efficiency=0.2, background_cps=1.0, dwell_s=1.0)
     sensor_positions = np.array(
         [
-            [box.Lx / 2.0, -0.03, box.Lz / 2.0],
-            [box.Lx / 2.0, -0.06, box.Lz / 2.0],
+            [box.Lx / 2.0, -0.10, box.Lz / 2.0],
+            [box.Lx / 2.0, -0.02, box.Lz / 2.0],
         ]
     )
 

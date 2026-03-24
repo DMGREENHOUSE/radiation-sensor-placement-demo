@@ -159,19 +159,11 @@ def sensor_names(n_sensors: int) -> list[str]:
 
 
 def default_sensor_positions(box: Box) -> np.ndarray:
-    fixed_span_m = 0.5
-    x_center = box.Lx / 2.0
-    z_center = box.Lz / 2.0
-    x_levels = np.linspace(x_center - fixed_span_m / 2.0, x_center + fixed_span_m / 2.0, 3)
-    y_levels = np.array([-0.30, -0.18, -0.06], dtype=float)
-    z_levels = np.linspace(z_center - fixed_span_m / 2.0, z_center + fixed_span_m / 2.0, 5)
-
-    positions = []
-    for z_index, z_value in enumerate(z_levels):
-        for x_index, x_value in enumerate(x_levels):
-            y_value = y_levels[(x_index + z_index) % len(y_levels)]
-            positions.append((x_value, y_value, z_value))
-    return np.asarray(positions, dtype=float)
+    n_sensors = 15
+    x_positions = np.full(n_sensors, box.Lx / 2.0, dtype=float)
+    y_positions = np.linspace(-0.30, 0.0, n_sensors)
+    z_positions = np.full(n_sensors, box.Lz / 2.0, dtype=float)
+    return np.column_stack((x_positions, y_positions, z_positions))
 
 
 def sensor_layout_dataframe(box: Box, sensor_positions_m: np.ndarray) -> pd.DataFrame:
@@ -210,7 +202,12 @@ def hotspot_center_values(box: Box) -> Dict[str, float]:
     }
 
 
-def make_centered_hotspot(box: Box, *, activity_mean_bq: float, size_m: float) -> Hotspot:
+def make_hotspot_with_fixed_position(
+    box: Box,
+    *,
+    activity_mean_bq: float,
+    size_m: float,
+) -> Hotspot:
     center = hotspot_center_values(box)
     return Hotspot(
         width_x_m=center["width_x_m"],
@@ -349,14 +346,17 @@ def comparison_chart(
 
 def sensor_schematic_figure(box: Box, sensor_positions_m: np.ndarray) -> go.Figure:
     labels = sensor_names(len(sensor_positions_m))
-    sample_center = np.array([box.Lx / 2.0, box.Ly / 2.0, box.Lz / 2.0], dtype=float)
+    sample_center = np.array([0.0, box.Ly / 2.0, 0.0], dtype=float)
+    sensor_x = sensor_positions_m[:, 0] - (box.Lx / 2.0)
+    sensor_y = sensor_positions_m[:, 1]
+    sensor_z = sensor_positions_m[:, 2] - (box.Lz / 2.0)
 
     fig = go.Figure()
     fig.add_trace(
         go.Scatter3d(
-            x=sensor_positions_m[:, 0],
-            y=sensor_positions_m[:, 1],
-            z=sensor_positions_m[:, 2],
+            x=sensor_x,
+            y=sensor_y,
+            z=sensor_z,
             mode="markers+text",
             text=labels,
             textposition="top center",
@@ -380,14 +380,14 @@ def sensor_schematic_figure(box: Box, sensor_positions_m: np.ndarray) -> go.Figu
 
     corners = np.array(
         [
-            [0.0, 0.0, 0.0],
-            [box.Lx, 0.0, 0.0],
-            [box.Lx, box.Ly, 0.0],
-            [0.0, box.Ly, 0.0],
-            [0.0, 0.0, box.Lz],
-            [box.Lx, 0.0, box.Lz],
-            [box.Lx, box.Ly, box.Lz],
-            [0.0, box.Ly, box.Lz],
+            [-box.Lx / 2.0, 0.0, -box.Lz / 2.0],
+            [box.Lx / 2.0, 0.0, -box.Lz / 2.0],
+            [box.Lx / 2.0, box.Ly, -box.Lz / 2.0],
+            [-box.Lx / 2.0, box.Ly, -box.Lz / 2.0],
+            [-box.Lx / 2.0, 0.0, box.Lz / 2.0],
+            [box.Lx / 2.0, 0.0, box.Lz / 2.0],
+            [box.Lx / 2.0, box.Ly, box.Lz / 2.0],
+            [-box.Lx / 2.0, box.Ly, box.Lz / 2.0],
         ],
         dtype=float,
     )
@@ -410,12 +410,12 @@ def sensor_schematic_figure(box: Box, sensor_positions_m: np.ndarray) -> go.Figu
             )
         )
 
-    x_min = min(float(sensor_positions_m[:, 0].min()), 0.0)
-    x_max = max(float(sensor_positions_m[:, 0].max()), box.Lx)
-    y_min = min(float(sensor_positions_m[:, 1].min()), 0.0)
-    y_max = max(float(sensor_positions_m[:, 1].max()), box.Ly)
-    z_min = min(float(sensor_positions_m[:, 2].min()), 0.0)
-    z_max = max(float(sensor_positions_m[:, 2].max()), box.Lz)
+    x_min = min(float(sensor_x.min()), -box.Lx / 2.0)
+    x_max = max(float(sensor_x.max()), box.Lx / 2.0)
+    y_min = min(float(sensor_y.min()), 0.0)
+    y_max = max(float(sensor_y.max()), box.Ly)
+    z_min = min(float(sensor_z.min()), -box.Lz / 2.0)
+    z_max = max(float(sensor_z.max()), box.Lz / 2.0)
 
     fig.update_layout(
         margin=dict(l=0, r=0, b=0, t=40),
@@ -430,6 +430,15 @@ def sensor_schematic_figure(box: Box, sensor_positions_m: np.ndarray) -> go.Figu
         ),
     )
     return fig
+
+
+def sensor_y_key_dataframe(sensor_positions_m: np.ndarray) -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "sensor": sensor_names(len(sensor_positions_m)),
+            "y_location_m": sensor_positions_m[:, 1],
+        }
+    )
 
 
 def render_design_results(
@@ -479,7 +488,8 @@ def render_design_results(
     st.markdown("")
     st.subheader("Sensor placement sketch")
     st.plotly_chart(sensor_schematic_figure(box, sensor_positions_m), use_container_width=True)
-    # st.caption("Sample box is shown as the wireframe volume, with sensors labeled S1-S15 and the sample labeled at its center.")
+    st.caption("Sensor key")
+    st.dataframe(sensor_y_key_dataframe(sensor_positions_m), use_container_width=True, height=220)
 
 
 def render_generate_measurement_tab(
@@ -496,7 +506,7 @@ def render_generate_measurement_tab(
     seed: int,
 ) -> None:
     st.subheader("Test performance")
-    st.caption("Tune source activity for a hotspot fixed at the centre of the box, choose available sensors, and export the simulated measurements.")
+    st.caption("Tune source activity for a hotspot fixed at the centre of the sample, choose available sensors, and export the simulated measurements.")
 
     controls_col, outputs_col = st.columns([1.4, 1.0], gap="large")
 
@@ -504,7 +514,7 @@ def render_generate_measurement_tab(
         st.markdown("##### Quantities of Interest")
         center = hotspot_center_values(box)
         st.info(
-            "Hotspot position is fixed at the sample centre: "
+            "Hotspot position is fixed at the centre of the sample: "
             f"x={center['width_x_m']:.3f} m, y={center['depth_y_m']:.3f} m, z={center['height_z_m']:.3f} m. "
             f"Source size is fixed at {size_m:.3f} m."
         )
@@ -545,7 +555,7 @@ def render_generate_measurement_tab(
                     sensor_positions_m=selected_positions,
                     box=box,
                     detector=detector,
-                    hotspot=make_centered_hotspot(
+                    hotspot=make_hotspot_with_fixed_position(
                         box,
                         activity_mean_bq=qoi_values["mean_activity_bq"],
                         size_m=size_m,
@@ -652,7 +662,7 @@ def main() -> None:
     with cols[1]:
         st.markdown('<div class="digilab-title">Hotspot Detector Simulator</div>', unsafe_allow_html=True)
         st.markdown(
-            '<p class="digilab-subtitle">Generate synthetic count-rate measurements around a fixed sample box, with centred source geometry and activity as the quantity of interest.</p>',
+            '<p class="digilab-subtitle">Generate synthetic count-rate measurements around a fixed sample box, with activity as the quantity of interest and the hotspot fixed at the sample centre.</p>',
             unsafe_allow_html=True,
         )
 
@@ -664,7 +674,7 @@ def main() -> None:
 
     with st.sidebar:
         st.header("Experiment design")
-        st.caption("The simulator uses a fixed 3D layout of 15 sensors labeled S1-S15 around a small fixed sample volume.")
+        st.caption("The simulator uses a fixed line of 15 sensors labeled S1-S15 along the y axis, with the sample centered at x=0 and z=0 in the sketch.")
 
         n_samples = st.number_input("Number of samples", min_value=1, max_value=50000, value=200, step=10)
         strategy = st.selectbox("Sampling strategy", ["lhs", "sobol", "random"], index=1)
@@ -674,8 +684,8 @@ def main() -> None:
         st.header("Fixed sample box")
         Lx = 0.05
         Ly = 0.05
-        Lz = 0.05
-        st.caption("The sample box is fixed at 0.05 m x 0.05 m x 0.05 m.")
+        Lz = 0.12
+        st.caption("The sample box is fixed at 0.05 m x 0.05 m x 0.12 m.")
 
         st.divider()
         st.header("Activity bounds")
@@ -692,7 +702,7 @@ def main() -> None:
 
         st.divider()
         st.header("Fixed source parameters")
-        st.caption("The hotspot remains centred in the box for every design sample.")
+        st.caption("The hotspot remains fixed at the sample centre.")
         size_m = st.number_input("size_m", min_value=1e-6, max_value=1.0, value=0.003, step=0.001, format="%.3f")
 
         st.divider()
